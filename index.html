@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Digital Harmonium</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <h1>🪗 Digital Harmonium</h1>
+  <p>Move your hand forward/back for air • Keyboard to play • Shift/Ctrl = Octave</p>
+
+  <!-- CAMERA -->
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+
+  <!-- AIR DISPLAY -->
+  <div id="air">
+    Air Pressure: <span id="airValue">0</span>
+  </div>
+
+  <!-- BELLOWS VISUAL -->
+  <div id="bellows-container">
+    <div id="bellows-bar"></div>
+  </div>
+
+  <!-- LOAD JS LAST -->
+  <script src="script.js"></script>
+
+</body>
+</html>
