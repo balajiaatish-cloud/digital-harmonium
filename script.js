@@ -3,11 +3,11 @@
 // ====================
 let isShiftPressed = false;
 let isCtrlPressed = false;
-
 let airPressure = 0;
 let lastZ = null;
 
-let performanceMode = false;
+// prevents repeated keydown bug
+const pressedKeys = new Set();
 
 // ====================
 // ELEMENTS
@@ -39,31 +39,36 @@ const notes = {
   k: "sa2"
 };
 
-const harmoniumKeys = Object.keys(notes);
+// ====================
+// LOAD SOUND
+// ====================
+async function loadSound(note) {
+  if (soundCache[note]) return soundCache[note];
+
+  const res = await fetch(`sounds/${note}.wav`);
+  const buf = await res.arrayBuffer();
+  const audioBuf = await audioCtx.decodeAudioData(buf);
+  soundCache[note] = audioBuf;
+  return audioBuf;
+}
 
 // ====================
-// PLAY NOTE (WITH OCTAVE)
+// PLAY NOTE (SAFE)
 // ====================
 async function playNote(noteName) {
-  if (activeNotes[noteName]) return;
+  if (activeNotes[noteName]) return; // already playing
 
-  if (!soundCache[noteName]) {
-    const res = await fetch(`sounds/${noteName}.wav`);
-    const buf = await res.arrayBuffer();
-    soundCache[noteName] = await audioCtx.decodeAudioData(buf);
-  }
-
+  const buffer = await loadSound(noteName);
   const source = audioCtx.createBufferSource();
   const gain = audioCtx.createGain();
 
   let octave = 0;
   if (isShiftPressed) octave = 1;
-  else if (isCtrlPressed) octave = -1;
+  if (isCtrlPressed) octave = -1;
 
-  source.buffer = soundCache[noteName];
+  source.buffer = buffer;
   source.loop = true;
   source.playbackRate.value = Math.pow(2, octave);
-
   gain.gain.value = airPressure / 100;
 
   source.connect(gain);
@@ -74,30 +79,37 @@ async function playNote(noteName) {
 }
 
 // ====================
-// STOP NOTE
+// STOP NOTE (HARD SAFE)
 // ====================
 function stopNote(noteName) {
   const note = activeNotes[noteName];
   if (!note) return;
 
-  const now = audioCtx.currentTime;
-
-  note.gain.gain.cancelScheduledValues(now);
-  note.gain.gain.setValueAtTime(note.gain.gain.value, now);
-  note.gain.gain.linearRampToValueAtTime(0, now + 0.08);
-
-  setTimeout(() => {
-    try { note.source.stop(); } catch {}
-  }, 100);
+  try {
+    note.source.stop();
+  } catch {}
 
   delete activeNotes[noteName];
 }
 
 // ====================
-// KEYBOARD (PLAYING)
+// STOP ALL NOTES (PANIC KILL)
+// ====================
+function stopAllNotes() {
+  Object.keys(activeNotes).forEach(stopNote);
+  pressedKeys.clear();
+}
+
+// ====================
+// KEYBOARD CONTROL
 // ====================
 document.addEventListener("keydown", (e) => {
+  e.preventDefault();
+
   if (audioCtx.state === "suspended") audioCtx.resume();
+
+  if (pressedKeys.has(e.key)) return; // BLOCK REPEAT
+  pressedKeys.add(e.key);
 
   if (e.key === "Shift") isShiftPressed = true;
   if (e.key === "Control") isCtrlPressed = true;
@@ -106,60 +118,24 @@ document.addEventListener("keydown", (e) => {
   if (note && airPressure > 2) {
     playNote(note);
   }
-});
+}, { passive: false });
 
 document.addEventListener("keyup", (e) => {
+  e.preventDefault();
+  pressedKeys.delete(e.key);
+
   if (e.key === "Shift") isShiftPressed = false;
   if (e.key === "Control") isCtrlPressed = false;
 
   const note = notes[e.key];
   if (note) stopNote(note);
-});
+}, { passive: false });
 
 // ====================
-// HARD SHORTCUT BLOCK (MAX POSSIBLE)
-// ====================
-window.addEventListener(
-  "keydown",
-  (e) => {
-    if (!performanceMode) return;
-
-    if (e.ctrlKey || e.shiftKey) {
-      if (
-        harmoniumKeys.includes(e.key) ||
-        e.key === "Shift" ||
-        e.key === "Control"
-      ) {
-        return;
-      }
-
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-    }
-  },
-  true // CAPTURE PHASE
-);
-
-window.addEventListener(
-  "keyup",
-  (e) => {
-    if (!performanceMode) return;
-
-    if (e.ctrlKey || e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-    }
-  },
-  true
-);
-
-// ====================
-// HAND TRACKING (AIR)
+// HAND TRACKING
 // ====================
 const hands = new Hands({
-  locateFile: (f) =>
+  locateFile: f =>
     `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
 });
 
@@ -192,12 +168,11 @@ hands.onResults((results) => {
     lastZ = z;
   }
 
-  airPressure -= 0.15;
+  airPressure -= 0.2;
   airPressure = Math.max(0, Math.min(100, airPressure));
 
-  if (airPressure < 1) {
-    Object.keys(activeNotes).forEach(stopNote);
-  }
+  // auto stop if no air
+  if (airPressure < 1) stopAllNotes();
 
   airText.textContent = Math.round(airPressure);
   bellowsBar.style.width = `${airPressure}%`;
@@ -221,23 +196,9 @@ const camera = new Camera(videoElement, {
 camera.start();
 
 // ====================
-// PERFORMANCE MODE
+// SAFETY NETS
 // ====================
-document.body.addEventListener("click", () => {
-  if (performanceMode) return;
-
-  performanceMode = true;
-
-  if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen();
-  }
-
-  audioCtx.resume();
-});
-
-// ====================
-// SAFETY
-// ====================
-window.addEventListener("blur", () => {
-  Object.keys(activeNotes).forEach(stopNote);
+window.addEventListener("blur", stopAllNotes);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopAllNotes();
 });
